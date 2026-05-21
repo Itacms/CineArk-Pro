@@ -34,7 +34,6 @@
         .hide-scrollbar::-webkit-scrollbar { display: none; }
         .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
-        /* Estilo do Menu Lateral no Player (Zap Menu) */
         #player-zap-menu {
             transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
             background: linear-gradient(90deg, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.7) 100%);
@@ -73,6 +72,20 @@
 
     <main id="main-content" class="flex-1 overflow-y-auto hide-scrollbar pb-32">
         <div class="px-6 py-4">
+            <!-- Nova seção para carregar via URL -->
+            <div class="mb-8 p-4 bg-zinc-900/50 rounded-2xl border border-zinc-800/80 max-w-2xl">
+                <h3 class="text-sm font-semibold text-zinc-300 mb-2 flex items-center gap-2">
+                    <i data-lucide="link" class="w-4 h-4 text-blue-500"></i> Carregar lista via URL (Internet)
+                </h3>
+                <div class="flex gap-2">
+                    <input type="text" id="url-input" placeholder="Cole aqui o link .m3u ou .m3u8..." 
+                           class="focusable flex-1 bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500">
+                    <button onclick="loadListFromURL()" class="focusable bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm px-4 py-2 rounded-xl transition-all">
+                        Carregar
+                    </button>
+                </div>
+            </div>
+
             <div class="flex items-center justify-between mb-6">
                 <h2 id="view-title" class="text-3xl font-bold text-zinc-100">Canais ao Vivo</h2>
                 <span id="items-count" class="text-xs text-zinc-500 font-mono">0 itens</span>
@@ -100,20 +113,19 @@
             </button>
             <label class="focusable flex flex-col items-center gap-1 p-3 rounded-2xl min-w-[80px] text-zinc-400 cursor-pointer">
                 <i data-lucide="folder-plus" class="w-6 h-6"></i>
-                <span class="text-[10px] font-bold uppercase">Lista</span>
+                <span class="text-[10px] font-bold uppercase">Arquivo Local</span>
                 <input type="file" id="file-input" accept=".m3u,.m3u8" class="hidden">
             </label>
         </div>
     </nav>
 
+    <!-- Estrutura do Player permanece igual -->
     <div id="player-overlay" class="fixed inset-0 bg-black z-[100] hidden flex flex-col" onclick="togglePlayerGui()">
-        
-        <!-- Vídeo Fullscreen -->
         <div class="flex-1 flex items-center justify-center bg-black relative">
-            <video id="video-player" class="w-full h-full"></video>
+            <video id="video-player" class="w-full h-full" autoplay></video>
             <div id="player-controls-overlay" class="absolute inset-0 video-overlay-gradient flex flex-col justify-between p-8 opacity-0 transition-opacity duration-300">
                 <div class="flex justify-between items-start">
-                    <button onclick="closePlayer()" class="focusable p-3 bg-white/10 backdrop-blur-xl rounded-full border border-white/10">
+                    <button onclick="closePlayer(); event.stopPropagation();" class="focusable p-3 bg-white/10 backdrop-blur-xl rounded-full border border-white/10 z-[120]">
                         <i data-lucide="arrow-left" class="w-6 h-6"></i>
                     </button>
                     <div class="text-right">
@@ -122,23 +134,20 @@
                     </div>
                 </div>
                 <div class="flex justify-center">
-                   <p class="text-zinc-400 text-sm italic">Pressione "OK" para ver a lista de canais</p>
+                   <p class="text-zinc-400 text-sm italic">Pressione "OK" ou clique para ver a lista de canais</p>
                 </div>
             </div>
         </div>
 
-        <!-- Zap Menu (Lista Lateral no Player) -->
         <div id="player-zap-menu" class="absolute top-0 left-0 bottom-0 w-80 z-[110] hidden-menu flex flex-col border-r border-white/10 backdrop-blur-2xl" onclick="event.stopPropagation()">
-            <div class="p-6 border-bottom border-white/10">
+            <div class="p-6 border-b border-white/10">
                 <h4 class="text-lg font-bold flex items-center gap-2">
                     <i data-lucide="list-video" class="w-5 h-5 text-blue-500"></i>
                     Troca Rápida
                 </h4>
                 <p class="text-[10px] text-zinc-500 uppercase mt-1">Navegue e selecione</p>
             </div>
-            <div id="zap-channel-list" class="flex-1 overflow-y-auto hide-scrollbar p-2 space-y-1">
-                <!-- Canais do Zap Menu injetados aqui -->
-            </div>
+            <div id="zap-channel-list" class="flex-1 overflow-y-auto hide-scrollbar p-2 space-y-1"></div>
         </div>
     </div>
 
@@ -158,7 +167,6 @@
 
         lucide.createIcons();
 
-        // Parser M3U
         function parseM3U(content) {
             const lines = content.split('\n');
             const items = [];
@@ -173,7 +181,7 @@
                     const groupMatch = line.match(/group-title="([^"]+)"/);
                     
                     currentItem = {
-                        name: title,
+                        name: title || 'Canal Sem Nome',
                         logo: logoMatch ? logoMatch[1] : '',
                         group: groupMatch ? groupMatch[1].toLowerCase() : 'outros',
                         url: ''
@@ -187,18 +195,51 @@
             return items;
         }
 
-        // Renderiza Grade Principal
+        // NOVO: Carregar lista via URL remota
+        function loadListFromURL() {
+            const url = document.getElementById('url-input').value.trim();
+            if (!url) {
+                showAlert('Por favor, insira uma URL válida.');
+                return;
+            }
+
+            showAlert('Baixando lista...');
+            
+            // Usamos fetch simples. Nota: Algumas URLs de IPTV podem exigir cabeçalhos CORS liberados na origem.
+            fetch(url)
+                .then(response => {
+                    if (!response.ok) throw new Error('Erro ao baixar arquivo da URL.');
+                    return response.text();
+                })
+                .then(data => {
+                    channels = parseM3U(data);
+                    if (channels.length > 0) {
+                        // Salva no armazenamento interno do navegador para persistência automática
+                        localStorage.setItem('saved_m3u_data', data);
+                        localStorage.setItem('saved_m3u_url', url);
+                        showAlert(`${channels.length} conteúdos carregados e salvos.`);
+                        filterContent();
+                    } else {
+                        showAlert('Nenhum canal válido encontrado nesse link.');
+                    }
+                })
+                .catch(err => {
+                    console.error(err);
+                    showAlert('Falha ao processar URL. Verifique o link ou problemas de CORS.');
+                });
+        }
+
         function renderGrid(items) {
             const grid = document.getElementById('content-grid');
             document.getElementById('items-count').innerText = `${items.length} itens encontrados`;
             grid.innerHTML = '';
 
             if (items.length === 0) {
-                grid.innerHTML = `<div class="col-span-full py-20 text-center text-zinc-600">Nenhum conteúdo nesta categoria.</div>`;
+                grid.innerHTML = `<div class="col-span-full py-20 text-center text-zinc-600">Nenhum conteúdo carregado. Use os campos acima ou o menu inferior para adicionar uma lista.</div>`;
                 return;
             }
 
-            items.forEach((item, index) => {
+            items.forEach((item) => {
                 const card = document.createElement('div');
                 card.className = 'focusable relative group cursor-pointer aspect-[16/9] rounded-xl overflow-hidden bg-zinc-900 border border-zinc-800';
                 card.tabIndex = 0;
@@ -207,7 +248,7 @@
                          class="w-full h-full object-cover opacity-60 group-hover:opacity-100 transition-opacity" 
                          onerror="this.src='https://placehold.co/400x225/111/fff?text=IPTV'">
                     <div class="absolute inset-0 flex items-end p-3 bg-gradient-to-t from-black/80 to-transparent">
-                        <span class="text-xs font-bold truncate">${item.name}</span>
+                        <span class="text-xs font-bold truncate w-full">${item.name}</span>
                     </div>
                 `;
                 card.onclick = () => playVideo(item);
@@ -215,7 +256,6 @@
             });
         }
 
-        // Renderiza o Zap Menu (Menu lateral durante o vídeo)
         function renderZapMenu() {
             const zapList = document.getElementById('zap-channel-list');
             zapList.innerHTML = '';
@@ -227,10 +267,10 @@
                 btn.className = `focusable flex items-center gap-3 p-3 rounded-xl cursor-pointer text-sm ${isActive ? 'channel-item-active text-blue-400' : 'text-zinc-400 hover:bg-white/5'}`;
                 btn.tabIndex = 0;
                 btn.innerHTML = `
-                    <div class="w-10 h-6 bg-zinc-800 rounded overflow-hidden flex-shrink-0">
-                        <img src="${item.logo}" class="w-full h-full object-contain" onerror="this.style.display='none'">
+                    <div class="w-10 h-6 bg-zinc-800 rounded overflow-hidden flex-shrink-0 flex items-center justify-center">
+                        ${item.logo ? `<img src="${item.logo}" class="w-full h-full object-contain" onerror="this.style.display='none'">` : `<i data-lucide="tv" class="w-4 h-4 text-zinc-600"></i>`}
                     </div>
-                    <span class="truncate font-medium">${item.name}</span>
+                    <span class="truncate font-medium flex-1">${item.name}</span>
                 `;
                 btn.onclick = (e) => {
                     e.stopPropagation();
@@ -238,6 +278,7 @@
                 };
                 zapList.appendChild(btn);
             });
+            lucide.createIcons({attrs: {class: 'w-4 h-4 text-zinc-500'}});
         }
 
         function changeView(view) {
@@ -249,7 +290,7 @@
             });
             
             const titles = { live: 'Canais ao Vivo', movies: 'Filmes', series: 'Séries' };
-            document.getElementById('view-title').innerText = titles[view];
+            document.getElementById('view-title').innerText = titles[view] || 'Conteúdo';
             filterContent();
         }
 
@@ -266,23 +307,21 @@
             renderGrid(filteredChannels);
         }
 
-        // PLAYER LOGIC
         function playVideo(item) {
             currentPlayingItem = item;
             const overlay = document.getElementById('player-overlay');
             document.getElementById('player-title').innerText = item.name;
             overlay.classList.remove('hidden');
             
-            // Renderiza o menu lateral baseado na lista atual
             renderZapMenu();
 
             if (Hls.isSupported()) {
                 hls.loadSource(item.url);
                 hls.attachMedia(video);
-                hls.on(Hls.Events.MANIFEST_PARSED, () => video.play());
+                hls.on(Hls.Events.MANIFEST_PARSED, () => video.play().catch(e => console.log(e)));
             } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
                 video.src = item.url;
-                video.play();
+                video.play().catch(e => console.log(e));
             }
             
             showPlayerGuiTemporarily();
@@ -295,9 +334,14 @@
             if (zap.classList.contains('hidden-menu')) {
                 zap.classList.remove('hidden-menu');
                 controls.classList.remove('opacity-0');
-                // Focar no item ativo no zap menu
-                const activeItem = zap.querySelector('.channel-item-active');
-                if (activeItem) activeItem.focus();
+                setTimeout(() => {
+                    const activeItem = zap.querySelector('.channel-item-active');
+                    if (activeItem) activeItem.focus();
+                    else {
+                        const firstZap = zap.querySelector('.focusable');
+                        if (firstZap) firstZap.focus();
+                    }
+                }, 50);
             } else {
                 zap.classList.add('hidden-menu');
                 controls.classList.add('opacity-0');
@@ -322,14 +366,20 @@
             document.getElementById('player-zap-menu').classList.add('hidden-menu');
         }
 
-        // Gerenciamento de Arquivo
+        // ATUALIZADO: Carregamento local agora salva no armazenamento interno do navegador
         document.getElementById('file-input').addEventListener('change', function(e) {
             const file = e.target.files[0];
             if (!file) return;
             const reader = new FileReader();
             reader.onload = (e) => {
-                channels = parseM3U(e.target.result);
-                showAlert(`${channels.length} conteúdos carregados.`);
+                const content = e.target.result;
+                channels = parseM3U(content);
+                
+                // Armazena no LocalStorage para não precisar pedir o arquivo de novo
+                localStorage.setItem('saved_m3u_data', content);
+                localStorage.removeItem('saved_m3u_url'); // Limpa URL se carregou local
+                
+                showAlert(`${channels.length} conteúdos carregados do arquivo local e salvos.`);
                 filterContent();
             };
             reader.readAsText(file);
@@ -344,15 +394,26 @@
             setTimeout(() => alert.style.transform = "translate(-50%, -200%)", 3000);
         }
 
+        // Teclado e Navegação
         window.addEventListener('keydown', (e) => {
             const playerVisible = !document.getElementById('player-overlay').classList.contains('hidden');
             const zapVisible = !document.getElementById('player-zap-menu').classList.contains('hidden-menu');
-            
-            const focusables = Array.from(document.querySelectorAll('.focusable:not(.hidden)'));
-            let current = document.activeElement;
+            const current = document.activeElement;
+
+            if (current && (current.id === 'search-bar' || current.id === 'url-input') && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+                return;
+            }
+
+            let focusablesSelector = '.focusable:not(.hidden)';
+            if (playerVisible) {
+                focusablesSelector = zapVisible ? '#player-zap-menu .focusable' : '#player-overlay .focusable';
+            } else {
+                focusablesSelector = 'body > #main-header .focusable, #main-content .focusable, #bottom-nav .focusable';
+            }
+
+            const focusables = Array.from(document.querySelectorAll(focusablesSelector));
             let index = focusables.indexOf(current);
 
-            // Se nada estiver focado, foca no primeiro disponível
             if (index === -1 && focusables.length > 0) {
                 focusables[0].focus();
                 return;
@@ -360,11 +421,8 @@
 
             switch(e.key) {
                 case 'Enter':
-                    if (playerVisible && !zapVisible) {
-                        togglePlayerGui();
-                    } else {
-                        current.click();
-                    }
+                    if (playerVisible && !zapVisible) togglePlayerGui();
+                    else if (current) current.click();
                     break;
                 case 'ArrowRight':
                     if (!zapVisible && index < focusables.length - 1) focusables[index + 1].focus();
@@ -374,38 +432,68 @@
                     break;
                 case 'ArrowDown':
                     if (zapVisible) {
-                        // Navegação na lista lateral
-                        const zapItems = Array.from(document.querySelectorAll('#zap-channel-list .focusable'));
-                        let zapIdx = zapItems.indexOf(current);
-                        if (zapIdx < zapItems.length - 1) zapItems[zapIdx + 1].focus();
+                        if (index < focusables.length - 1) focusables[index + 1].focus();
                     } else {
-                        const cols = 8; // Aproximado para desktop
-                        if (index + cols < focusables.length) focusables[index + cols].focus();
+                        let nextRowItem = null;
+                        const currentRect = current.getBoundingClientRect();
+                        for (let i = index + 1; i < focusables.length; i++) {
+                            const targetRect = focusables[i].getBoundingClientRect();
+                            if (targetRect.top > currentRect.bottom && Math.abs(targetRect.left - currentRect.left) < 50) {
+                                nextRowItem = focusables[i];
+                                break;
+                            }
+                        }
+                        if (nextRowItem) nextRowItem.focus();
+                        else if (index < focusables.length - 1 && current.closest('#main-content')) {
+                            const navItem = document.querySelector('#bottom-nav .focusable');
+                            if (navItem) navItem.focus();
+                        }
                     }
                     break;
                 case 'ArrowUp':
                     if (zapVisible) {
-                        const zapItems = Array.from(document.querySelectorAll('#zap-channel-list .focusable'));
-                        let zapIdx = zapItems.indexOf(current);
-                        if (zapIdx > 0) zapItems[zapIdx - 1].focus();
+                        if (index > 0) focusables[index - 1].focus();
                     } else {
-                        const cols = 8;
-                        if (index - cols >= 0) focusables[index - cols].focus();
+                        let prevRowItem = null;
+                        const currentRect = current.getBoundingClientRect();
+                        for (let i = index - 1; i >= 0; i--) {
+                            const targetRect = focusables[i].getBoundingClientRect();
+                            if (targetRect.bottom < currentRect.top && Math.abs(targetRect.left - currentRect.left) < 50) {
+                                prevRowItem = focusables[i];
+                                break;
+                            }
+                        }
+                        if (prevRowItem) prevRowItem.focus();
+                        else if (current.closest('#main-content')) {
+                            const searchBar = document.getElementById('search-bar');
+                            if (searchBar) searchBar.focus();
+                        }
                     }
                     break;
                 case 'Escape':
                 case 'Backspace':
-                    if (zapVisible) {
-                        togglePlayerGui();
-                    } else if (playerVisible) {
-                        closePlayer();
-                    }
+                    if (zapVisible) togglePlayerGui();
+                    else if (playerVisible) closePlayer();
                     e.preventDefault();
                     break;
             }
         });
 
-        window.onload = () => changeView('live');
+        // NOVO: Ao iniciar a página, verifica se há uma lista salva anteriormente
+        window.onload = () => {
+            const savedData = localStorage.getItem('saved_m3u_data');
+            const savedURL = localStorage.getItem('saved_m3u_url');
+            
+            if (savedURL) {
+                document.getElementById('url-input').value = savedURL;
+            }
+
+            if (savedData) {
+                channels = parseM3U(savedData);
+                showAlert(`Lista recuperada da memória: ${channels.length} itens.`);
+            }
+            changeView('live');
+        };
     </script>
 </body>
 </html>
