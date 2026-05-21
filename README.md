@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CineArk IPTV - Live Mode</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.4.10/hls.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #050505;
+            color: #ffffff;
+            overflow: hidden;
+            user-select: none;
+        }
+
+        .focusable {
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            border: 2px solid transparent;
+        }
+
+        .focusable:focus, .focusable.focused {
+            outline: none;
+            transform: scale(1.05);
+            border-color: #3b82f6;
+            background-color: rgba(59, 130, 246, 0.2);
+            z-index: 50;
+        }
+
+        .hide-scrollbar::-webkit-scrollbar { display: none; }
+        .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+        #player-zap-menu {
+            transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+            background: linear-gradient(90deg, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.7) 100%);
+        }
+
+        #player-zap-menu.hidden-menu {
+            transform: translateX(-100%);
+        }
+
+        .channel-item-active {
+            border-left: 4px solid #3b82f6;
+            background: rgba(59, 130, 246, 0.1);
+        }
+
+        .video-overlay-gradient {
+            background: linear-gradient(0deg, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0) 50%, rgba(0,0,0,0.8) 100%);
+        }
+    </style>
+</head>
+<body class="h-screen flex flex-col overflow-hidden bg-black">
+
+    <header id="main-header" class="p-6 flex flex-col md:flex-row justify-between items-center gap-4 z-10 bg-zinc-950/80 backdrop-blur-md">
+        <div class="flex items-center gap-3">
+            <div class="p-2 bg-blue-600 rounded-lg">
+                <i data-lucide="clapperboard" class="w-6 h-6 text-white"></i>
+            </div>
+            <span class="text-xl font-bold tracking-tighter uppercase">Cine<span class="text-blue-500">Ark</span></span>
+        </div>
+        
+        <div class="relative w-full max-w-xl">
+            <i data-lucide="search" class="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500"></i>
+            <input type="text" id="search-bar" placeholder="Pesquisar na lista..." 
+                   class="focusable w-full bg-zinc-900 border-none rounded-full py-3 pl-12 pr-6 text-sm focus:ring-2 focus:ring-blue-500 transition-all">
+        </div>
+    </header>
+
+    <main id="main-content" class="flex-1 overflow-y-auto hide-scrollbar pb-32">
+        <div class="px-6 py-4">
+            <!-- Nova seção para carregar via URL -->
+            <div class="mb-8 p-4 bg-zinc-900/50 rounded-2xl border border-zinc-800/80 max-w-2xl">
+                <h3 class="text-sm font-semibold text-zinc-300 mb-2 flex items-center gap-2">
+                    <i data-lucide="link" class="w-4 h-4 text-blue-500"></i> Carregar lista via URL (Internet)
+                </h3>
+                <div class="flex gap-2">
+                    <input type="text" id="url-input" placeholder="Cole aqui o link .m3u ou .m3u8..." 
+                           class="focusable flex-1 bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500">
+                    <button onclick="loadListFromURL()" class="focusable bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm px-4 py-2 rounded-xl transition-all">
+                        Carregar
+                    </button>
+                </div>
+            </div>
+
+            <div class="flex items-center justify-between mb-6">
+                <h2 id="view-title" class="text-3xl font-bold text-zinc-100">Canais ao Vivo</h2>
+                <span id="items-count" class="text-xs text-zinc-500 font-mono">0 itens</span>
+            </div>
+            <div id="content-grid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-4">
+                <!-- Conteúdo injetado via JS -->
+            </div>
+        </div>
+    </main>
+
+    <!-- Navegação Inferior -->
+    <nav id="bottom-nav" class="fixed bottom-0 left-0 right-0 h-24 bg-zinc-950 border-t border-zinc-800 flex items-center justify-center px-4 z-40">
+        <div class="flex flex-row gap-2 md:gap-8 w-full max-w-4xl justify-around">
+            <button onclick="changeView('live')" class="focusable nav-item flex flex-col items-center gap-1 p-3 rounded-2xl min-w-[80px] text-blue-500" data-view="live">
+                <i data-lucide="tv" class="w-6 h-6"></i>
+                <span class="text-[10px] font-bold uppercase">Canais</span>
+            </button>
+            <button onclick="changeView('movies')" class="focusable nav-item flex flex-col items-center gap-1 p-3 rounded-2xl min-w-[80px] text-zinc-400" data-view="movies">
+                <i data-lucide="film" class="w-6 h-6"></i>
+                <span class="text-[10px] font-bold uppercase">Filmes</span>
+            </button>
+            <button onclick="changeView('series')" class="focusable nav-item flex flex-col items-center gap-1 p-3 rounded-2xl min-w-[80px] text-zinc-400" data-view="series">
+                <i data-lucide="library" class="w-6 h-6"></i>
+                <span class="text-[10px] font-bold uppercase">Séries</span>
+            </button>
+            <label class="focusable flex flex-col items-center gap-1 p-3 rounded-2xl min-w-[80px] text-zinc-400 cursor-pointer">
+                <i data-lucide="folder-plus" class="w-6 h-6"></i>
+                <span class="text-[10px] font-bold uppercase">Arquivo Local</span>
+                <input type="file" id="file-input" accept=".m3u,.m3u8" class="hidden">
+            </label>
+        </div>
+    </nav>
+
+    <!-- Estrutura do Player permanece igual -->
+    <div id="player-overlay" class="fixed inset-0 bg-black z-[100] hidden flex flex-col" onclick="togglePlayerGui()">
+        <div class="flex-1 flex items-center justify-center bg-black relative">
+            <video id="video-player" class="w-full h-full" autoplay></video>
+            <div id="player-controls-overlay" class="absolute inset-0 video-overlay-gradient flex flex-col justify-between p-8 opacity-0 transition-opacity duration-300">
+                <div class="flex justify-between items-start">
+                    <button onclick="closePlayer(); event.stopPropagation();" class="focusable p-3 bg-white/10 backdrop-blur-xl rounded-full border border-white/10 z-[120]">
+                        <i data-lucide="arrow-left" class="w-6 h-6"></i>
+                    </button>
+                    <div class="text-right">
+                        <h3 id="player-title" class="text-2xl font-bold">Canal</h3>
+                        <p id="player-status" class="text-blue-400 text-sm font-bold uppercase tracking-widest">Ao vivo</p>
+                    </div>
+                </div>
+                <div class="flex justify-center">
+                   <p class="text-zinc-400 text-sm italic">Pressione "OK" ou clique para ver a lista de canais</p>
+                </div>
+            </div>
+        </div>
+
+        <div id="player-zap-menu" class="absolute top-0 left-0 bottom-0 w-80 z-[110] hidden-menu flex flex-col border-r border-white/10 backdrop-blur-2xl" onclick="event.stopPropagation()">
+            <div class="p-6 border-b border-white/10">
+                <h4 class="text-lg font-bold flex items-center gap-2">
+                    <i data-lucide="list-video" class="w-5 h-5 text-blue-500"></i>
+                    Troca Rápida
+                </h4>
+                <p class="text-[10px] text-zinc-500 uppercase mt-1">Navegue e selecione</p>
+            </div>
+            <div id="zap-channel-list" class="flex-1 overflow-y-auto hide-scrollbar p-2 space-y-1"></div>
+        </div>
+    </div>
+
+    <div id="custom-alert" class="fixed top-8 left-1/2 -translate-x-1/2 bg-zinc-900/90 backdrop-blur-2xl border border-zinc-700 px-6 py-4 rounded-2xl shadow-2xl translate-y-[-200%] transition-transform duration-500 z-[200]">
+        <p id="alert-message" class="text-sm font-semibold"></p>
+    </div>
+
+    <script>
+        let channels = [];
+        let filteredChannels = [];
+        let currentView = 'live';
+        let currentPlayingItem = null;
+        let guiTimeout = null;
+
+        const video = document.getElementById('video-player');
+        const hls = new Hls();
+
+        lucide.createIcons();
+
+        function parseM3U(content) {
+            const lines = content.split('\n');
+            const items = [];
+            let currentItem = null;
+
+            for (let line of lines) {
+                line = line.trim();
+                if (line.startsWith('#EXTINF:')) {
+                    const info = line.split(',');
+                    const title = info[info.length - 1];
+                    const logoMatch = line.match(/tvg-logo="([^"]+)"/);
+                    const groupMatch = line.match(/group-title="([^"]+)"/);
+                    
+                    currentItem = {
+                        name: title || 'Canal Sem Nome',
+                        logo: logoMatch ? logoMatch[1] : '',
+                        group: groupMatch ? groupMatch[1].toLowerCase() : 'outros',
+                        url: ''
+                    };
+                } else if (line.startsWith('http') && currentItem) {
+                    currentItem.url = line;
+                    items.push(currentItem);
+                    currentItem = null;
+                }
+            }
+            return items;
+        }
+
+        // NOVO: Carregar lista via URL remota
+        function loadListFromURL() {
+            const url = document.getElementById('url-input').value.trim();
+            if (!url) {
+                showAlert('Por favor, insira uma URL válida.');
+                return;
+            }
+
+            showAlert('Baixando lista...');
+            
+            // Usamos fetch simples. Nota: Algumas URLs de IPTV podem exigir cabeçalhos CORS liberados na origem.
+            fetch(url)
+                .then(response => {
+                    if (!response.ok) throw new Error('Erro ao baixar arquivo da URL.');
+                    return response.text();
+                })
+                .then(data => {
+                    channels = parseM3U(data);
+                    if (channels.length > 0) {
+                        // Salva no armazenamento interno do navegador para persistência automática
+                        localStorage.setItem('saved_m3u_data', data);
+                        localStorage.setItem('saved_m3u_url', url);
+                        showAlert(`${channels.length} conteúdos carregados e salvos.`);
+                        filterContent();
+                    } else {
+                        showAlert('Nenhum canal válido encontrado nesse link.');
+                    }
+                })
+                .catch(err => {
+                    console.error(err);
+                    showAlert('Falha ao processar URL. Verifique o link ou problemas de CORS.');
+                });
+        }
+
+        function renderGrid(items) {
+            const grid = document.getElementById('content-grid');
+            document.getElementById('items-count').innerText = `${items.length} itens encontrados`;
+            grid.innerHTML = '';
+
+            if (items.length === 0) {
+                grid.innerHTML = `<div class="col-span-full py-20 text-center text-zinc-600">Nenhum conteúdo carregado. Use os campos acima ou o menu inferior para adicionar uma lista.</div>`;
+                return;
+            }
+
+            items.forEach((item) => {
+                const card = document.createElement('div');
+                card.className = 'focusable relative group cursor-pointer aspect-[16/9] rounded-xl overflow-hidden bg-zinc-900 border border-zinc-800';
+                card.tabIndex = 0;
+                card.innerHTML = `
+                    <img src="${item.logo || 'https://placehold.co/400x225/111/fff?text=' + encodeURIComponent(item.name.substring(0,2))}" 
+                         class="w-full h-full object-cover opacity-60 group-hover:opacity-100 transition-opacity" 
+                         onerror="this.src='https://placehold.co/400x225/111/fff?text=IPTV'">
+                    <div class="absolute inset-0 flex items-end p-3 bg-gradient-to-t from-black/80 to-transparent">
+                        <span class="text-xs font-bold truncate w-full">${item.name}</span>
+                    </div>
+                `;
+                card.onclick = () => playVideo(item);
+                grid.appendChild(card);
+            });
+        }
+
+        function renderZapMenu() {
+            const zapList = document.getElementById('zap-channel-list');
+            zapList.innerHTML = '';
+
+            filteredChannels.forEach((item) => {
+                const btn = document.createElement('div');
+                const isActive = currentPlayingItem && currentPlayingItem.url === item.url;
+                
+                btn.className = `focusable flex items-center gap-3 p-3 rounded-xl cursor-pointer text-sm ${isActive ? 'channel-item-active text-blue-400' : 'text-zinc-400 hover:bg-white/5'}`;
+                btn.tabIndex = 0;
+                btn.innerHTML = `
+                    <div class="w-10 h-6 bg-zinc-800 rounded overflow-hidden flex-shrink-0 flex items-center justify-center">
+                        ${item.logo ? `<img src="${item.logo}" class="w-full h-full object-contain" onerror="this.style.display='none'">` : `<i data-lucide="tv" class="w-4 h-4 text-zinc-600"></i>`}
+                    </div>
+                    <span class="truncate font-medium flex-1">${item.name}</span>
+                `;
+                btn.onclick = (e) => {
+                    e.stopPropagation();
+                    playVideo(item);
+                };
+                zapList.appendChild(btn);
+            });
+            lucide.createIcons({attrs: {class: 'w-4 h-4 text-zinc-500'}});
+        }
+
+        function changeView(view) {
+            currentView = view;
+            document.querySelectorAll('.nav-item').forEach(btn => {
+                const active = btn.dataset.view === view;
+                btn.classList.toggle('text-blue-500', active);
+                btn.classList.toggle('text-zinc-400', !active);
+            });
+            
+            const titles = { live: 'Canais ao Vivo', movies: 'Filmes', series: 'Séries' };
+            document.getElementById('view-title').innerText = titles[view] || 'Conteúdo';
+            filterContent();
+        }
+
+        function filterContent() {
+            const query = document.getElementById('search-bar').value.toLowerCase();
+            filteredChannels = channels.filter(item => {
+                const matchesSearch = item.name.toLowerCase().includes(query);
+                const g = item.group;
+                if (currentView === 'live') return matchesSearch && !g.includes('filme') && !g.includes('movie') && !g.includes('serie');
+                if (currentView === 'movies') return matchesSearch && (g.includes('filme') || g.includes('movie'));
+                if (currentView === 'series') return matchesSearch && (g.includes('serie'));
+                return matchesSearch;
+            });
+            renderGrid(filteredChannels);
+        }
+
+        function playVideo(item) {
+            currentPlayingItem = item;
+            const overlay = document.getElementById('player-overlay');
+            document.getElementById('player-title').innerText = item.name;
+            overlay.classList.remove('hidden');
+            
+            renderZapMenu();
+
+            if (Hls.isSupported()) {
+                hls.loadSource(item.url);
+                hls.attachMedia(video);
+                hls.on(Hls.Events.MANIFEST_PARSED, () => video.play().catch(e => console.log(e)));
+            } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                video.src = item.url;
+                video.play().catch(e => console.log(e));
+            }
+            
+            showPlayerGuiTemporarily();
+        }
+
+        function togglePlayerGui() {
+            const zap = document.getElementById('player-zap-menu');
+            const controls = document.getElementById('player-controls-overlay');
+            
+            if (zap.classList.contains('hidden-menu')) {
+                zap.classList.remove('hidden-menu');
+                controls.classList.remove('opacity-0');
+                setTimeout(() => {
+                    const activeItem = zap.querySelector('.channel-item-active');
+                    if (activeItem) activeItem.focus();
+                    else {
+                        const firstZap = zap.querySelector('.focusable');
+                        if (firstZap) firstZap.focus();
+                    }
+                }, 50);
+            } else {
+                zap.classList.add('hidden-menu');
+                controls.classList.add('opacity-0');
+            }
+        }
+
+        function showPlayerGuiTemporarily() {
+            const controls = document.getElementById('player-controls-overlay');
+            controls.classList.remove('opacity-0');
+            clearTimeout(guiTimeout);
+            guiTimeout = setTimeout(() => {
+                if (document.getElementById('player-zap-menu').classList.contains('hidden-menu')) {
+                    controls.classList.add('opacity-0');
+                }
+            }, 5000);
+        }
+
+        function closePlayer() {
+            video.pause();
+            hls.detachMedia();
+            document.getElementById('player-overlay').classList.add('hidden');
+            document.getElementById('player-zap-menu').classList.add('hidden-menu');
+        }
+
+        // ATUALIZADO: Carregamento local agora salva no armazenamento interno do navegador
+        document.getElementById('file-input').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const content = e.target.result;
+                channels = parseM3U(content);
+                
+                // Armazena no LocalStorage para não precisar pedir o arquivo de novo
+                localStorage.setItem('saved_m3u_data', content);
+                localStorage.removeItem('saved_m3u_url'); // Limpa URL se carregou local
+                
+                showAlert(`${channels.length} conteúdos carregados do arquivo local e salvos.`);
+                filterContent();
+            };
+            reader.readAsText(file);
+        });
+
+        document.getElementById('search-bar').addEventListener('input', filterContent);
+
+        function showAlert(msg) {
+            const alert = document.getElementById('custom-alert');
+            document.getElementById('alert-message').innerText = msg;
+            alert.style.transform = "translate(-50%, 0)";
+            setTimeout(() => alert.style.transform = "translate(-50%, -200%)", 3000);
+        }
+
+        // Teclado e Navegação
+        window.addEventListener('keydown', (e) => {
+            const playerVisible = !document.getElementById('player-overlay').classList.contains('hidden');
+            const zapVisible = !document.getElementById('player-zap-menu').classList.contains('hidden-menu');
+            const current = document.activeElement;
+
+            if (current && (current.id === 'search-bar' || current.id === 'url-input') && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+                return;
+            }
+
+            let focusablesSelector = '.focusable:not(.hidden)';
+            if (playerVisible) {
+                focusablesSelector = zapVisible ? '#player-zap-menu .focusable' : '#player-overlay .focusable';
+            } else {
+                focusablesSelector = 'body > #main-header .focusable, #main-content .focusable, #bottom-nav .focusable';
+            }
+
+            const focusables = Array.from(document.querySelectorAll(focusablesSelector));
+            let index = focusables.indexOf(current);
+
+            if (index === -1 && focusables.length > 0) {
+                focusables[0].focus();
+                return;
+            }
+
+            switch(e.key) {
+                case 'Enter':
+                    if (playerVisible && !zapVisible) togglePlayerGui();
+                    else if (current) current.click();
+                    break;
+                case 'ArrowRight':
+                    if (!zapVisible && index < focusables.length - 1) focusables[index + 1].focus();
+                    break;
+                case 'ArrowLeft':
+                    if (!zapVisible && index > 0) focusables[index - 1].focus();
+                    break;
+                case 'ArrowDown':
+                    if (zapVisible) {
+                        if (index < focusables.length - 1) focusables[index + 1].focus();
+                    } else {
+                        let nextRowItem = null;
+                        const currentRect = current.getBoundingClientRect();
+                        for (let i = index + 1; i < focusables.length; i++) {
+                            const targetRect = focusables[i].getBoundingClientRect();
+                            if (targetRect.top > currentRect.bottom && Math.abs(targetRect.left - currentRect.left) < 50) {
+                                nextRowItem = focusables[i];
+                                break;
+                            }
+                        }
+                        if (nextRowItem) nextRowItem.focus();
+                        else if (index < focusables.length - 1 && current.closest('#main-content')) {
+                            const navItem = document.querySelector('#bottom-nav .focusable');
+                            if (navItem) navItem.focus();
+                        }
+                    }
+                    break;
+                case 'ArrowUp':
+                    if (zapVisible) {
+                        if (index > 0) focusables[index - 1].focus();
+                    } else {
+                        let prevRowItem = null;
+                        const currentRect = current.getBoundingClientRect();
+                        for (let i = index - 1; i >= 0; i--) {
+                            const targetRect = focusables[i].getBoundingClientRect();
+                            if (targetRect.bottom < currentRect.top && Math.abs(targetRect.left - currentRect.left) < 50) {
+                                prevRowItem = focusables[i];
+                                break;
+                            }
+                        }
+                        if (prevRowItem) prevRowItem.focus();
+                        else if (current.closest('#main-content')) {
+                            const searchBar = document.getElementById('search-bar');
+                            if (searchBar) searchBar.focus();
+                        }
+                    }
+                    break;
+                case 'Escape':
+                case 'Backspace':
+                    if (zapVisible) togglePlayerGui();
+                    else if (playerVisible) closePlayer();
+                    e.preventDefault();
+                    break;
+            }
+        });
+
+        // NOVO: Ao iniciar a página, verifica se há uma lista salva anteriormente
+        window.onload = () => {
+            const savedData = localStorage.getItem('saved_m3u_data');
+            const savedURL = localStorage.getItem('saved_m3u_url');
+            
+            if (savedURL) {
+                document.getElementById('url-input').value = savedURL;
+            }
+
+            if (savedData) {
+                channels = parseM3U(savedData);
+                showAlert(`Lista recuperada da memória: ${channels.length} itens.`);
+            }
+            changeView('live');
+        };
+    </script>
+</body>
+</html>
